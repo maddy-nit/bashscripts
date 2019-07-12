@@ -15,12 +15,12 @@ TIMEOUT=$3
 #Extract test case id from input.txt file location
 # Arg $1 - test case input file location
 extract_tcid(){
-	location=$1
-	location=${location/"input"/" "}
-	location=${location/".txt"/" "}
-	tcid="$(echo $location | cut -d' ' -f2)"
-	printf "$tcid"
-	return
+  location=$1
+  location=${location/"input"/" "}
+  location=${location/".txt"/" "}
+  tcid="$(echo $location | cut -d' ' -f2)"
+  printf "$tcid"
+  return
 }
 
 clear_candidate_directory(){
@@ -49,9 +49,9 @@ start_execute(){
   i=0
   tccount=$(ls -dq $TC_FOLDER_NAME/input*|wc -l)
 
-	ls -dq $TC_FOLDER_NAME/input* | while read -r tc_in ; do    
+  ls -dq $TC_FOLDER_NAME/input* | while read -r tc_in ; do    
     ((i++))
-		# stats variable
+    # stats variable
     index=''
     status='false'
     execution_time=null
@@ -61,15 +61,24 @@ start_execute(){
     error=''
 
 
-		index=$(extract_tcid "$tc_in")
-		start=`date +%s%N | cut -b1-13`
-		
+    index=$(extract_tcid "$tc_in")
+    start=`date +%s%N | cut -b1-13`
+    
     # Starting execution
-		timeout --preserve-status -k $TIMEOUT -s SIGINT $TIMEOUT cat $tc_in|$COMMAND>out$index 2>error$index
-    #$COMMAND>out$index 2>error$index & sleep $TIMEOUT;kill $!
+    #execute command in background
+    (cat $tc_in|$COMMAND>out$index 2>error$index) &
+
+    #get process ID
+    proc=$! 
+    exitcode=$?
+
+    #sleep for 10 milliseconds then kill command
+    (sleep $TIMEOUT; if kill -9 $proc > /dev/null 2>&1; then
+      exitcode=130
+    fi) &
 
     # scaling exitcode by 128
-    exitcode=`expr ${PIPESTATUS[0]} - 128`    
+    exitcode=`expr $exitcode - 128`    
     execution_time=$((`date +%s%N | cut -b1-13`-start))
 
     #converting execution time from ms to seconds
@@ -78,10 +87,10 @@ start_execute(){
     if (( exitcode == -128 )); then 
       exitcode=0;
     fi
-    #if (( exitcode == 0 & execution_time > `expr $TIMEOUT*1000`)); then execution_time=TIMEOUT; fi
     
     # Runtime Error verification
-		if [ ! $exitcode -eq 0 ]; then
+    if [ ! $exitcode -eq 0 ]; then
+      execution_time=null
       case "$exitcode" in
       2)  time_limit_exceeded='true'
             error="Time Limit Exceeded"
@@ -96,11 +105,12 @@ start_execute(){
     else
       # output verification (if output file available and exit code is 0)
       if ([ -f "out$index" ] && [ $exitcode -eq 0 ]); then
+        cat "out$index"; exit 0;
         if [[ ! $(diff out$index ${tc_in/"input"/"output"}) ]]; then
           status=true
         fi
       fi
-		fi
+    fi
 
     printf "{\"index\": $index, \"isPassed\": $status, \"executionTime\": \"$execution_time\", \"runtimeErrorFlag\": $runtime_error_flag, \"outOfTime\": $time_limit_exceeded, \"outOfMemory\": $memory_limit_exceeded, \"errorMessage\": \"$error\"}" >> response
     if (( i < tccount )); then printf "," >> response; fi
@@ -113,6 +123,6 @@ if ([ "$0" = "$BASH_SOURCE" ] || ! [ -n "$BASH_SOURCE" ]); then
   clear_candidate_directory
   # intiating execute
   start_execute "$@"
-  delete_temporary_files
+  #delete_temporary_files
 fi
 exit 0;
