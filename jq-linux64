@@ -1,0 +1,1 @@
+Exception in thread main java.lang.ArithmeticException: / by zero at CandidateCode.addition(CandidateCode.java:12) at CandidateCode.main(CandidateCode.java:24) -nc .

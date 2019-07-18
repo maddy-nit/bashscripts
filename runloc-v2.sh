@@ -73,9 +73,10 @@ start_execute(){
     exitcode=$?
 
     #sleep for 10 milliseconds then kill command
-    (sleep $TIMEOUT; if kill -9 $proc > /dev/null 2>&1; then
+    sleep $TIMEOUT;
+    if kill -9 $proc > /dev/null 2>&1; then
       exitcode=130
-    fi) &
+    fi
 
     # scaling exitcode by 128
     exitcode=`expr $exitcode - 128`    
@@ -105,7 +106,6 @@ start_execute(){
     else
       # output verification (if output file available and exit code is 0)
       if ([ -f "out$index" ] && [ $exitcode -eq 0 ]); then
-        cat "out$index"; exit 0;
         if [[ ! $(diff out$index ${tc_in/"input"/"output"}) ]]; then
           status=true
         fi
