@@ -36,18 +36,25 @@ json_escape () {
   printf '%s' "$1" | php -r 'echo json_encode(file_get_contents("php://stdin"));'
 }
 
+## execute test case ignoring prompt to kill after timeout
+function run_testcase() {
+  exec 1>/dev/null
+  exec 2>/dev/null
+  # Starting execution
+  timeout --preserve-status --signal=SIGKILL $TIMEOUT bash -c "{ cat $tc_in|$COMMAND>out$index 2>error$index; }" &> /dev/null
+}
 
 #####################################################################
 # Evaluate a floating point number conditional expression.
 function float_cond(){
-    local cond=0
-    if [[ $# -gt 0 ]]; then
-        cond=$(echo "$*" | bc -q 2>/dev/null)
-        if [[ -z "$cond" ]]; then cond=0; fi
-        if [[ "$cond" != 0  &&  "$cond" != 1 ]]; then cond=0; fi
+  local cond=0
+  if [[ $# -gt 0 ]]; then
+    cond=$(echo "$*" | bc -q 2>/dev/null)
+    if [[ -z "$cond" ]]; then cond=0; fi
+      if [[ "$cond" != 0  &&  "$cond" != 1 ]]; then cond=0; fi
     fi
-    local stat=$((cond == 0))
-    return $stat
+  local stat=$((cond == 0))
+  return $stat
 }
 
 start_execute(){
@@ -55,7 +62,7 @@ start_execute(){
   i=0
   tccount=$(ls -dq $TC_FOLDER_NAME/input*|wc -l)
 
-	ls -dq $TC_FOLDER_NAME/input* | while read -r tc_in ; do    
+  ls -dq $TC_FOLDER_NAME/input* | while read -r tc_in ; do    
     ((i++))
 		# stats variable
     index=''
@@ -68,60 +75,54 @@ start_execute(){
     error_details=''
 
 
-		index=$(extract_tcid "$tc_in")
-		start=`date +%s%N | cut -b1-13`
-		
-    # Starting execution
-		#timeout --preserve-status -k $TIMEOUT -s SIGKILL $TIMEOUT cat $tc_in|$COMMAND>out$index 2>error$index
-		timeout --preserve-status --signal=SIGINT $TIMEOUT bash -c "{ cat $tc_in|$COMMAND>out$index 2>error$index; }"
-    #timeout --preserve-status --signal=SIGKILL $TIMEOUT bash -c "{ sleep .1; }"
-    #$COMMAND>out$index 2>error$index & sleep $TIMEOUT;kill $!
-
+    index=$(extract_tcid "$tc_in")
+    start=`date +%s%N | cut -b1-13`
+    run_testcase
     exitcode=$?; 
     execution_time=$((`date +%s%N | cut -b1-13`-start))
 
     #converting execution time from ms to seconds
-    execution_time=$(printf %.3f\\n "$((10**9 * "$execution_time"/1000))e-9")
+    execution_time=$(printf %.3f\\n "$((10**9 * $execution_time/1000))e-9")
 
     #if (( exitcode == 0 & execution_time > `expr $TIMEOUT*1000`)); then execution_time=TIMEOUT; fi
     
     # Runtime Error verification
-		if [ ! $exitcode -eq 0 ]; then
+    if [ ! $exitcode -eq 0 ]; then
       case "$exitcode" in
-      130)  time_limit_exceeded='true'
-            error="Time Limit Exceeded"
+        137)  time_limit_exceeded='true'
+              error="Time Limit Exceeded"
           ;;
-      9)  memory_limit_exceeded='true'
-            error="Memory Limit Exceeded"
+          9)  memory_limit_exceeded='true'
+              error="Memory Limit Exceeded"
           ;;
-        *)  runtime_error_flag='true'
-            error="Runtime error"
-            error_details=`cat error$index`
-          ;;
-      esac
-    else
+          *)  runtime_error_flag='true'
+              error="Runtime error"
+              error_details=$(cat error$index)
+            ;;
+          esac
+        else
       # output verification (if output file available and exit code is 0)
       if ([ -f "out$index" ] && [ $exitcode -eq 0 ]); then
         if [[ ! $(diff out$index ${tc_in/"input"/"output"}) ]]; then
           status=true
         fi
       fi
-		fi
+    fi
 
     #printf "{\"index\": $index, \"isPassed\": $status, \"executionTime\": \"$execution_time\", \"runtimeErrorFlag\": $runtime_error_flag, \"outOfTime\": $time_limit_exceeded, \"outOfMemory\": $memory_limit_exceeded, \"errorMessage\": \"$error\", \"errorMessageDetails\": \"$error_details\"}" >> response
-    printf '%s' $(/bashworkspace/jq-linux64 -nc --arg index "$index" \
-    --arg status "$status" \
-    --arg execution_time "$execution_time" \
-    --arg runtime_error_flag "$runtime_error_flag" \
-    --arg time_limit_exceeded "$time_limit_exceeded" \
-    --arg memory_limit_exceeded "$memory_limit_exceeded" \
-    --arg error "$error" \
-    --arg error_details "$error_details" \
-    '{"index" : $index, "isPassed" : $status, "executionTime" : $execution_time, "runtimeErrorFlag" : $runtime_error_flag, "outOfTime" : $time_limit_exceeded, "outOfMemory" : $memory_limit_exceeded, "errorMessage" : $error, "errorMessageDetails" : $error_details }') >> response
+    printf '%s' $(/bashworkspace/jq -nc --arg index "$index" \
+      --arg status "$status" \
+      --arg execution_time "$execution_time" \
+      --arg runtime_error_flag "$runtime_error_flag" \
+      --arg time_limit_exceeded "$time_limit_exceeded" \
+      --arg memory_limit_exceeded "$memory_limit_exceeded" \
+      --arg error "$error" \
+      --arg error_details "$error_details" \
+      '{"index" : $index, "isPassed" : $status, "executionTime" : $execution_time, "runtimeErrorFlag" : $runtime_error_flag, "outOfTime" : $time_limit_exceeded, "outOfMemory" : $memory_limit_exceeded, "errorMessage" : $error, "errorMessageDetails" : $error_details }') >> response
 
     if (( i < tccount )); then printf "," >> response; fi
-    done  
-  printf "]" >> response
+  done  
+printf "]" >> response
 }
 
 # Boot start
@@ -129,6 +130,6 @@ if ([ "$0" = "$BASH_SOURCE" ] || ! [ -n "$BASH_SOURCE" ]); then
   clear_candidate_directory
   # intiating execute
   start_execute "$@"
-  #delete_temporary_files
+  delete_temporary_files
 fi
 exit 0;
